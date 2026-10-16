@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f7f4">
+  <title>今天行程</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif; color: #28291f; background: #f8f7f4; font-synthesis: none; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; padding: 64px 20px; }
+    main { width: min(100%, 600px); margin: 0 auto; }
+    .eyebrow { margin: 0 0 10px; color: #818175; font-size: 13px; letter-spacing: .14em; }
+    h1 { margin: 0; font-size: clamp(34px, 9vw, 48px); letter-spacing: -.06em; }
+    h1 span { color: #878778; font-size: .48em; font-weight: 500; letter-spacing: 0; white-space: nowrap; }
+    .intro { margin: 12px 0 32px; color: #77776e; font-size: 15px; }
+    .form-card, .schedule-card { padding: 24px; border: 1px solid #eae9e3; border-radius: 20px; background: #fff; box-shadow: 0 8px 28px #29271908; }
+    .form-card { margin-bottom: 28px; }
+    form { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; }
+    .fields { display: grid; grid-template-columns: 125px 1fr; gap: 12px; }
+    label { display: block; margin-bottom: 8px; color: #57574d; font-size: 13px; font-weight: 600; }
+    input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid #e5e4dd; border-radius: 11px; background: #fff; color: inherit; font: inherit; outline: none; }
+    input:focus { border-color: #7a8057; box-shadow: 0 0 0 3px #7a805718; }
+    button { min-height: 46px; padding: 0 19px; border: 0; border-radius: 11px; background: #676d49; color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #53583a; }
+    button:focus-visible, input:focus-visible { outline: 3px solid #aeb68a; outline-offset: 2px; }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+    h2 { margin: 0; font-size: 18px; }
+    .count { color: #858579; font-size: 13px; }
+    .empty { padding: 32px 10px; color: #88887f; text-align: center; font-size: 14px; }
+    .list { margin: 0; padding: 0; list-style: none; }
+    .item { display: grid; grid-template-columns: 64px 1fr 38px; gap: 12px; align-items: center; padding: 15px 0; border-top: 1px solid #efeee9; }
+    .item:first-child { border-top: 0; }
+    .item time { color: #676d49; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .item p { margin: 0; overflow-wrap: anywhere; font-size: 15px; }
+    .remove { min-height: 36px; padding: 0; background: transparent; color: #8b8b81; font-size: 20px; }
+    .remove:hover { background: #f2f1ed; color: #a04236; }
+    @media (max-width: 460px) { body { padding: 42px 16px; } .form-card, .schedule-card { padding: 19px; } form { grid-template-columns: 1fr; } .fields { grid-template-columns: 112px 1fr; } button[type="submit"] { width: 100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">YOUR DAILY PLAN</p>
+      <h1>今天行程 <span id="today-date"></span></h1>
+      <p class="intro">把今天要做的事記下來，照著時間一步一步完成。</p>
+    </header>
+    <section class="form-card" aria-label="新增行程">
+      <form id="schedule-form">
+        <div class="fields">
+          <div><label for="event-time">行程時間</label><input id="event-time" name="time" type="time" required></div>
+          <div><label for="event-title">今天要做什麼？</label><input id="event-title" name="title" type="text" maxlength="100" placeholder="例如：喝咖啡、完成報告" required></div>
+        </div>
+        <button type="submit">＋ 新增行程</button>
+      </form>
+    </section>
+    <section class="schedule-card" aria-labelledby="schedule-heading">
+      <div class="section-heading"><h2 id="schedule-heading">今日時間表</h2><span class="count" id="event-count">0 項行程</span></div>
+      <p class="empty" id="empty-message">還沒有安排行程，新增一項開始規劃吧 ☀️</p>
+      <ol class="list" id="schedule-list" aria-live="polite"></ol>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const dateElement = document.getElementById('today-date');
+      const form = document.getElementById('schedule-form');
+      const timeInput = document.getElementById('event-time');
+      const titleInput = document.getElementById('event-title');
+      const list = document.getElementById('schedule-list');
+      const emptyMessage = document.getElementById('empty-message');
+      const count = document.getElementById('event-count');
+      dateElement.textContent = `・${new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}`;
+
+      let events = [];
+      try {
+        const saved = JSON.parse(localStorage.getItem('today-schedule') || '[]');
+        if (Array.isArray(saved)) events = saved.filter((event) => event && /^([01]\d|2[0-3]):[0-5]\d$/.test(event.time) && typeof event.title === 'string');
+      } catch { events = []; }
+
+      function render() {
+        events.sort((a, b) => a.time.localeCompare(b.time) || a.createdAt - b.createdAt);
+        list.replaceChildren();
+        emptyMessage.hidden = events.length > 0;
+        count.textContent = `${events.length} 項行程`;
+        for (const event of events) {
+          const item = document.createElement('li');
+          item.className = 'item';
+          const time = document.createElement('time');
+          time.dateTime = event.time;
+          time.textContent = event.time;
+          const title = document.createElement('p');
+          title.textContent = event.title;
+          const remove = document.createElement('button');
+          remove.className = 'remove';
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.setAttribute('aria-label', `刪除 ${event.time} ${event.title}`);
+          remove.addEventListener('click', () => {
+            events = events.filter((entry) => entry.id !== event.id);
+            saveAndRender();
+          });
+          item.append(time, title, remove);
+          list.append(item);
+        }
+      }
+
+      function saveAndRender() {
+        try { localStorage.setItem('today-schedule', JSON.stringify(events)); } catch { /* 儲存不可用時仍可在本頁使用。 */ }
+        render();
+      }
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const title = titleInput.value.trim();
+        if (!title || !timeInput.value) return;
+        events.push({ id: `${Date.now()}-${Math.random()}`, time: timeInput.value, title, createdAt: Date.now() });
+        saveAndRender();
+        form.reset();
+        timeInput.focus();
+      });
+      render();
+    })();
+  </script>
+</body>
+</html>
+
